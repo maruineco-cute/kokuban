@@ -26,6 +26,9 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+textarea, input[type="text"] { -webkit-user-select: text; user-select: text; }
+.sheet img { -webkit-user-select: auto; user-select: auto; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
@@ -279,9 +282,10 @@ button:focus-visible, .stage:focus-visible { outline: 2px solid var(--accent); o
 
     <div id="photoBox" class="row" hidden>
       <label class="btn" style="display:inline-grid;place-items:center">写真を追加<input type="file" id="photoFile" accept="image/*" multiple hidden></label>
-      <button type="button" class="btn" id="photoOff">この写真をはずす</button>
+      <button type="button" class="btn" id="photoOff">選んだものをはずす</button>
       <button type="button" class="btn" id="photoClear">ぜんぶはずす</button>
-      <p class="note" style="flex-basis:100%">写真は何枚でも貼れます(まとめて選べます)。写真の上にはチョークで描けません。まわりに描いて飾れます。写真をタップで選んでドラッグで移動、黄色の○で回転、スライダーで大きさを変えます。</p>
+      <div class="row tight" style="flex-basis:100%" id="magRow"><span style="font-size:13px;color:var(--muted)">マグネット</span></div>
+      <p class="note" style="flex-basis:100%">写真は何枚でも貼れます(まとめて選べます)。写真の上にはチョークで描けません。まわりに描いて飾れます。写真をタップで選んでドラッグで移動、黄色の○で回転、スライダーで大きさを変えます。マグネットは色をタップで出して、写真の上にも置けます(いつも一番上に重なります)。</p>
     </div>
 
     <div id="rulerBox" class="row" hidden>
@@ -333,8 +337,9 @@ const TOOL_CFG = {
   ruler:  { label: '定規の大きさ',     min: 300, max: 1000 },
   photo:  { label: '選んだ写真の大きさ', min: 80, max: 700 },
   text:   { label: '選んだ文字の大きさ', min: 24, max: 220 },
+  magnet: { label: '選んだマグネットの大きさ', min: 24, max: 120 },
 };
-const sizes = { chalk: 14, smudge: 36, eraser: 64, ruler: 560, photo: 300, text: 72 };
+const sizes = { chalk: 14, smudge: 36, eraser: 64, ruler: 560, photo: 300, text: 72, magnet: 56 };
 let tool = 'chalk', color = 'white';
 
 const $ = id => document.getElementById(id);
@@ -574,11 +579,14 @@ function soundThud() { burst(2600, 1.2, 0.03, 0.12); }
 /* ---------- 三角定規 ---------- */
 const photos = []; let selP = null;   // 写真と文字をまとめて「ものリスト」として扱う
 const pcC = $('pc'); pcC.width = BW; pcC.height = BH; const pcx = pcC.getContext('2d');
-const PB = 14;   // 写真のふち(白)
+const PB = 0;   // 写真のふち(なし)
 const isTxt = ph => ph.kind === 'text';
+const isMag = ph => ph.kind === 'magnet';
+const isPhoto = ph => !ph.kind;
+const MAG_COLORS = { red: '#d2493f', yellow: '#e9c13f', blue: '#3f84d2', green: '#46a862', white: '#ecebe4' };
 const padOf = ph => isTxt(ph) ? 6 : PB;
-const phW = ph => isTxt(ph) ? ph.cache.width : ph.w;
-const phH = ph => isTxt(ph) ? ph.cache.height : ph.w * ph.img.height / ph.img.width;
+const phW = ph => isMag(ph) ? ph.d : isTxt(ph) ? ph.cache.width : ph.w;
+const phH = ph => isMag(ph) ? ph.d : isTxt(ph) ? ph.cache.height : ph.w * ph.img.height / ph.img.width;
 const CHALK_FONT = '"Yusei Magic","Zen Maru Gothic","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif';
 function renderText(it) {
   const fs = it.fs, lines = it.txt.split('\n'), font = `${fs}px ${CHALK_FONT}`, m = document.createElement('canvas').getContext('2d');
@@ -614,34 +622,49 @@ function newText(txt, color) {
 function drawOnePhoto(g, ph) {
   g.save(); g.translate(ph.cx, ph.cy); g.rotate(ph.ang);
   if (isTxt(ph)) { g.drawImage(ph.cache, -ph.cache.width / 2, -ph.cache.height / 2); g.restore(); return; }
+  if (isMag(ph)) {
+    const r = ph.d / 2, c = MAG_COLORS[ph.color];
+    g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = r * 0.5; g.shadowOffsetY = r * 0.18;
+    g.fillStyle = c; g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fill();
+    g.shadowColor = 'transparent';
+    const gr = g.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.05, 0, 0, r);
+    gr.addColorStop(0, 'rgba(255,255,255,.55)'); gr.addColorStop(0.45, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(0,0,0,.35)');
+    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,.3)'; g.lineWidth = 1.2; g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.stroke();
+    g.restore(); return;
+  }
   const w = ph.w, h = phH(ph);
   g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 16; g.shadowOffsetY = 5;
   g.fillStyle = '#efece3'; g.fillRect(-w / 2 - PB, -h / 2 - PB, w + PB * 2, h + PB * 2);
   g.shadowColor = 'transparent';
   g.drawImage(ph.img, -w / 2, -h / 2, w, h);
   g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1.5; g.strokeRect(-w / 2, -h / 2, w, h);
-  g.fillStyle = '#c8473f'; g.beginPath(); g.arc(0, -h / 2 - PB + 4, 11, 0, 6.2832); g.fill();   // マグネット
-  g.fillStyle = 'rgba(255,255,255,.45)'; g.beginPath(); g.arc(-3, -h / 2 - PB + 1, 4, 0, 6.2832); g.fill();
   g.restore();
 }
 function drawPhotoTo(g) {
   if (!photos.length) return;
   g.save(); g.beginPath(); g.rect(FACE[0], FACE[1], FACE[2] - FACE[0], FACE[3] - FACE[1]); g.clip();
-  photos.forEach(ph => drawOnePhoto(g, ph));
+  photos.filter(ph => !isMag(ph)).forEach(ph => drawOnePhoto(g, ph));
+  photos.filter(isMag).forEach(ph => drawOnePhoto(g, ph));   // マグネットは常に一番上
   g.restore();
 }
 function inPh(ph, p) {
   const c = Math.cos(-ph.ang), s2 = Math.sin(-ph.ang), x = p.x - ph.cx, y = p.y - ph.cy, qx = x * c - y * s2, qy = x * s2 + y * c, pd = padOf(ph);
   return Math.abs(qx) <= phW(ph) / 2 + pd && Math.abs(qy) <= phH(ph) / 2 + pd;
 }
-function photoAt(p) { for (let i = photos.length - 1; i >= 0; i--) if (inPh(photos[i], p)) return photos[i]; return null; }
-function photoBlockAt(p) { for (let i = photos.length - 1; i >= 0; i--) if (!isTxt(photos[i]) && inPh(photos[i], p)) return true; return false; }
+function photoAt(p) {
+  for (let i = photos.length - 1; i >= 0; i--) if (isMag(photos[i]) && Math.hypot(p.x - photos[i].cx, p.y - photos[i].cy) <= photos[i].d / 2 + 10) return photos[i];
+  for (let i = photos.length - 1; i >= 0; i--) if (!isMag(photos[i]) && inPh(photos[i], p)) return photos[i];
+  return null;
+}
+function photoBlockAt(p) { for (let i = photos.length - 1; i >= 0; i--) if (isPhoto(photos[i]) && inPh(photos[i], p)) return true; return false; }
 function phHandle(ph) { const c = Math.cos(ph.ang), s2 = Math.sin(ph.ang), pd = padOf(ph), lx = phW(ph) / 2 + pd + 34, ly = -phH(ph) / 2 - pd - 34; return { x: ph.cx + lx * c - ly * s2, y: ph.cy + lx * s2 + ly * c }; }
 const objTool = () => tool === 'photo' || tool === 'text';
 function redrawPhoto() {
   pcx.clearRect(0, 0, BW, BH); drawPhotoTo(pcx);
   if (selP && objTool()) {
     const ph = selP, w = phW(ph), h = phH(ph), pd = padOf(ph);
+    if (isMag(ph)) { pcx.save(); pcx.setLineDash([8, 6]); pcx.lineWidth = 3; pcx.strokeStyle = 'rgba(243,214,110,.95)'; pcx.beginPath(); pcx.arc(ph.cx, ph.cy, ph.d / 2 + 9, 0, 6.2832); pcx.stroke(); pcx.restore(); return; }
     pcx.save(); pcx.translate(ph.cx, ph.cy); pcx.rotate(ph.ang);
     pcx.setLineDash([10, 7]); pcx.lineWidth = 3; pcx.strokeStyle = 'rgba(243,214,110,.95)';
     pcx.strokeRect(-w / 2 - pd - 6, -h / 2 - pd - 6, w + pd * 2 + 12, h + pd * 2 + 12); pcx.restore();
@@ -654,18 +677,18 @@ function redrawPhoto() {
 let pdrag = null;
 function syncPhotoSlider() {
   if (!objTool()) return;
-  const sl = $('size'), txt = selP ? isTxt(selP) : tool === 'text', cfg = TOOL_CFG[txt ? 'text' : 'photo'];
+  const sl = $('size'), txt = selP ? isTxt(selP) : tool === 'text', mag = !!selP && isMag(selP), cfg = TOOL_CFG[mag ? 'magnet' : txt ? 'text' : 'photo'];
   sl.min = cfg.min; sl.max = cfg.max; $('sizeLbl').textContent = cfg.label;
-  const v = selP ? (isTxt(selP) ? selP.fs : selP.w) : sizes[txt ? 'text' : 'photo'];
+  const v = selP ? (isMag(selP) ? selP.d : isTxt(selP) ? selP.fs : selP.w) : sizes[txt ? 'text' : 'photo'];
   sl.value = v; $('sizeVal').textContent = Math.round(v);
   if (selP && isTxt(selP)) { $('txtIn').value = selP.txt; }
 }
 function beginPhoto(e) {
   const p = toBoard(e);
-  if (selP) { const h = phHandle(selP); if (Math.hypot(p.x - h.x, p.y - h.y) < 56) { pdrag = { id: e.pointerId, mode: 'rot', ang0: selP.ang, phi0: Math.atan2(p.y - selP.cy, p.x - selP.cx) }; return true; } }
+  if (selP && !isMag(selP)) { const h = phHandle(selP); if (Math.hypot(p.x - h.x, p.y - h.y) < 56) { pdrag = { id: e.pointerId, mode: 'rot', ang0: selP.ang, phi0: Math.atan2(p.y - selP.cy, p.x - selP.cx) }; return true; } }
   const ph = photoAt(p);
   if (!ph) { selP = null; redrawPhoto(); return false; }
-  selP = ph; photos.splice(photos.indexOf(ph), 1); photos.push(ph);   // 選んだ写真を手前に
+  selP = ph; if (!isMag(ph)) { photos.splice(photos.indexOf(ph), 1); const lastNonMag = photos.map(isMag).lastIndexOf(false); photos.splice(lastNonMag + 1, 0, ph); }   // 選んだ写真・文字を手前に(マグネットの下)
   syncPhotoSlider(); redrawPhoto();
   pdrag = { id: e.pointerId, mode: 'move', dx: ph.cx - p.x, dy: ph.cy - p.y };
   return true;
@@ -969,6 +992,8 @@ stage.addEventListener('wheel', e => {
   zoomAt(e.clientX, e.clientY, Z.s * Math.exp(-e.deltaY * 0.0016));
 }, { passive: false });
 stage.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('selectstart', e => { if (!(e.target.closest && e.target.closest('textarea, input'))) e.preventDefault(); });
+document.addEventListener('dragstart', e => e.preventDefault());
 window.addEventListener('resize', applyZ);
 window.addEventListener('keydown', e => {
   if (e.code === 'Space' && !/INPUT|BUTTON/.test(document.activeElement.tagName)) { spaceDown = true; e.preventDefault(); }
@@ -1016,7 +1041,7 @@ A.order.forEach(k => {
   $('chips').append(b);
 });
 document.querySelectorAll('.tool').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
-$('size').addEventListener('input', e => { sizes[tool] = +e.target.value; $('sizeVal').textContent = e.target.value; if (objTool() && selP) { if (isTxt(selP)) { selP.fs = +e.target.value; sizes.text = selP.fs; renderText(selP); } else selP.w = +e.target.value; } if (tool === 'ruler') drawRuler(); if (objTool()) redrawPhoto(); });
+$('size').addEventListener('input', e => { sizes[tool] = +e.target.value; $('sizeVal').textContent = e.target.value; if (objTool() && selP) { if (isMag(selP)) selP.d = +e.target.value; else if (isTxt(selP)) { selP.fs = +e.target.value; sizes.text = selP.fs; renderText(selP); } else selP.w = +e.target.value; } if (tool === 'ruler') drawRuler(); if (objTool()) redrawPhoto(); });
 undoBtn.addEventListener('click', undo);
 $('clear').addEventListener('click', () => {
   pushUndo(); cx.clearRect(0, 0, BW, BH); toast('ぜんぶ消しました。「戻す」で元に戻せます');
@@ -1047,6 +1072,17 @@ $('txtBake').addEventListener('click', () => {
   pushUndo(); cx.save(); cx.translate(selP.cx, selP.cy); cx.rotate(selP.ang);
   cx.globalCompositeOperation = 'source-over'; cx.globalAlpha = 1; cx.drawImage(selP.cache, -selP.cache.width / 2, -selP.cache.height / 2); cx.restore();
   photos.splice(photos.indexOf(selP), 1); selP = null; redrawPhoto(); toast('黒板に書き込みました');
+});
+Object.entries(MAG_COLORS).forEach(([k, c]) => {
+  const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-label', 'マグネット ' + k);
+  b.style.cssText = `width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.7);background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.6),rgba(255,255,255,0) 45%),${c};cursor:pointer;padding:0`;
+  b.addEventListener('click', () => {
+    let x = BW / 2 + (photos.length % 5) * 22, y = BH / 2 + (photos.length % 5) * 22;
+    if (selP && isPhoto(selP)) { const hh = phH(selP) / 2, cs = Math.cos(selP.ang), sn = Math.sin(selP.ang); x = selP.cx + hh * sn; y = selP.cy - hh * cs; }   // 選んだ写真の上辺の中央
+    const m = { kind: 'magnet', color: k, d: sizes.magnet, cx: clamp(x, FACE[0], FACE[2]), cy: clamp(y, FACE[1], FACE[3]), ang: 0 };
+    photos.push(m); selP = m; hideHint(); syncPhotoSlider(); redrawPhoto();
+  });
+  $('magRow').appendChild(b);
 });
 $('photoClear').addEventListener('click', () => { photos.length = 0; selP = null; redrawPhoto(); });
 $('rFlip').addEventListener('click', () => { ruler.flip = !ruler.flip; drawRuler(); });
